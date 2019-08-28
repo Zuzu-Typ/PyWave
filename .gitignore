@@ -1,0 +1,7 @@
+
+readmelang.py
+*.bat
+__pycache__/
+dist/
+build/
+PyWave.egg-info/
