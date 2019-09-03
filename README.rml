@@ -1,11 +1,11 @@
 [title]PyWave[/]
 [subtitle]Open and read Wave files[/]
 [b]PyWave[/] is a small [b]extension[/] that enables you to [b]open[/] and [b]read[/] the data of any [b]WAVE-RIFF[/] file.
-It supports PCM, IEEE-FLOAT, EXTENSIBLE and a few other wave formats (including 32 bit waves).
+It supports PCM, IEEE-FLOAT, EXTENSIBLE and a few other wave formats (including 32 and 64 bit waves).
 
 [s1]Tiny documentation[/]
 [s2]About PyWave[/]
-[b]PyWave[/] is supposed to [b]replace[/] the builtin Python extension [code]wave[/], which doesn't support 32-bit wave.
+[b]PyWave[/] is supposed to [b]replace[/] the builtin Python extension [code]wave[/], which doesn't support >16-bit wave files.
 
 [s2]Using PyWave[/]
 To install PyWave you can use the PyPI:
@@ -17,18 +17,14 @@ or a wildcard import:
 
 
 [s3]The Wave class[/]
-You can use the [code]Wave[/] class to open and read a wave file:
-[code]
-Wave(path\[, auto_read = False\])
-    path       - File path to a wave file
-    auto_read  - (optional) Can be set to True to read the data automatically[/]
-
-If [code]auto_read[/] is enabled, the data will be stored in [code]Wave.data[/]
+You can use [code]open(path)[/] to open and read a wave file.
+It will return an instance of the [code]Wave[/] class.
 
 The following methods are provided by the [code]Wave[/] class:
 [code]
-Wave.read([max_bytes = 4096]) -> <bytes> data
+Wave.read([max_bytes = None]) -> <bytes> data
     Reads and returns at most <max_bytes> bytes of data.
+    If <max_bytes> is None, reads until the end.
 
 Wave.read_samples(number_of_samples) -> <bytes> data
     Reads and returns at most <number_of_samples> samples of data.
@@ -57,6 +53,7 @@ Wave.format <int>
     - WAVE_FORMAT_ALAW
     - WAVE_FORMAT_MULAW
     - WAVE_FORMAT_EXTENSIBLE
+    Otherwise the format is unknown
     
 Wave.channels <int>
     The number of audio channels present in the audio stream
@@ -75,17 +72,20 @@ Wave.samples <int>
     
 Wave.data <bytes>
     (only if <auto_read> was set to True)
-    Audio data as bytes[/]
+    Audio data as bytes
+    
+Wave.metadata <dict>
+    A dictionary containing metadata specified in the wave file[/]
 
 
 
 [s2]Example[/]
 [code]
-from PyWave import *
+import PyWave
 
 PATH = "path/to/a/wave/file.wav"
 
-wf = Wave(PATH)
+wf = PyWave.open(PATH)
 
 print("This WAVE file has the following properties:")
 print(wf.channels, "channels")

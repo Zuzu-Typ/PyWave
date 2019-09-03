@@ -1,5 +1,7 @@
 import warnings
 
+builtin_open = __builtins__.open
+
 bti = lambda bytes_: int.from_bytes(bytes_, "little")
 
 class WAVEFORMAT:
@@ -8,14 +10,6 @@ class WAVEFORMAT:
     SamplesPerSec   = 0
     AvgBytesPerSec  = 0
     BlockAlign      = 0
-##    def __init__(self, data = None):
-##        if data:
-##            assert type(data) == bytes and len(data) == 14, "expected a data stream of 14 bytes"
-##            self.FormatTag      = data[:2]
-##            self.Channels       = data[2:4]
-##            self.SamplesPerSec  = data[4:8]
-##            self.AvgBytesPerSec = data[8:12]
-##            self.BlockAlign     = data[12:]
 
 class PCMWAVEFORMAT(WAVEFORMAT):
     BitsPerSample   = 0
@@ -77,88 +71,147 @@ fourccDATA  = b"data"
 fourccFMT   = b"fmt "
 fourccWAVE  = b"WAVE"
 fourccXWMA  = b"XWMA"
-fourccDPDS  = b"dpds"
+fourccLIST  = b"LIST"
+fourccINFO  = b"INFO"
 
+OK = 0
 ERROR_NOT_A_WAVE_FILE = -1
-
-def _find_chunk(file_, fourcc):
-    file_.seek(0)
-    ChunkType       = b""
-    ChunkDataSize   = 0
-    Offset          = 0
-
-    read = True
-    while read:
-        read = file_.read(4)
-        ChunkType       = read
-        
-        read = file_.read(4)
-        ChunkDataSize   = bti(read)
-
-        if ChunkType == fourccRIFF:
-            ChunkDataSize   = 4
-            read = file_.seek(4, 1)
-            
-        else:
-            file_.seek(ChunkDataSize, 1)
-
-        Offset += 4 * 2
-
-        if (ChunkType == fourcc):
-            ChunkSize           = ChunkDataSize
-            ChunkDataPosition   = Offset
-            return (ChunkSize, ChunkDataPosition)
-
-        Offset += ChunkDataSize
 
 def _read_chunk_data(file_, size, offset):
     file_.seek(offset)
     return file_.read(size)
 
-def _open_wave_file(path):
-    file_ = open(path, "rb")
+def _check_file_format(file_):
+    file_.seek(0)
+    RIFFChunk = file_.read(4)
+    file_.seek(4, 1)
+    WAVETag = file_.read(4)
 
-    fc = _find_chunk(file_, fourccRIFF)
-    if type(fc) != tuple:
-        raise PyWaveError("'{}' does not appear to be a wave file.".format(path))
-    ChunkSize, ChunkPosition = fc
+    if RIFFChunk != fourccRIFF or not WAVETag in (fourccWAVE, fourccXWMA):
+        return ERROR_NOT_A_WAVE_FILE
+    return 0
 
-    filetype = _read_chunk_data(file_, 4, ChunkPosition)
+def _get_chunks(file_):
+    file_.seek(4)
+    total_size = bti(file_.read(4))
+    file_.seek(4, 1)
+    
+    out = {}
+    Offset = 12
+    
+    read_bytes = 4
+    read = True
+    while read_bytes < total_size and read:
+        read = file_.read(4)
+        read_bytes += len(read)
+        ChunkType = read
 
-    if not filetype in (fourccWAVE, fourccXWMA):
-        raise PyWaveError("'{}' does not appear to be a wave file.".format(path))
+        read = file_.read(4)
+        read_bytes += len(read)
+        ChunkDataSize = bti(read)
+        ChunkDataSize += ChunkDataSize % 2
 
-    fc = _find_chunk(file_, fourccFMT)
-    if type(fc) != tuple:
-        raise PyWaveError("'{}' is missing the fmt chunk.".format(path))
-    ChunkSize, ChunkPosition = fc
+        Offset += 8
+        
 
-    wfx = None
+        out[ChunkType] = (ChunkDataSize, Offset)
 
-    if ChunkSize == 16:
-        wfx = PCMWAVEFORMAT(_read_chunk_data(file_, ChunkSize, ChunkPosition))
-    elif ChunkSize == 18:
-        wfx = WAVEFORMATEX(_read_chunk_data(file_, ChunkSize, ChunkPosition))
-    elif 18 < ChunkSize <= 40:
-        wfx = WAVEFORMATEXTENSIBLE(_read_chunk_data(file_, ChunkSize, ChunkPosition))
-    else:
-        raise PyWaveError("'{}' has an unknown or unsupported format.".format(path))
+        Offset += ChunkDataSize
+        file_.seek(ChunkDataSize, 1)
+        read_bytes += ChunkDataSize
 
-    fc = _find_chunk(file_, fourccDATA)
-    if type(fc) != tuple:
-        raise PyWaveError("'{}' is missing the data chunk.".format(path))
-    ChunkSize, ChunkPosition = fc
+    return out
 
-    return (file_, wfx, ChunkSize, ChunkPosition)
+def _get_info_chunks(file_, size, offset):
+    file_.seek(offset)
+    out = {}
+    read_bytes = 4
+    while read_bytes < size:
+        name    = file_.read(4)
+        size_   = bti(file_.read(4))
+        data    = file_.read(size_-1)
+        file_.seek(1, 1)
+        read_bytes += 8 + size_
+
+        out[name.decode()] = data.decode()
+    return out
 
 class Wave:
     """Opens a WAVE-RIFF file for reading.
-If <auto_read> is set to True, the data of the wave
-file <path> is read and put into <Wave.data>.
-Otherwise <Wave.read()> can be used to read data from
+If <mode> is 'r', <Wave.read()> can be used to read data from
 the wave file."""
-    def __init__(self, path, auto_read = False):
-        self.wf, self.wfx, self.data_length, self.data_starts_at = _open_wave_file(path)
+    def __init__(self, path, auto_read = False, mode = "r"):
+        assert mode in ("r", "w"), "mode has to be (r)ead or (w)rite"
+
+        assert mode == "r", "the only mode currently supported is (r)ead"
+        
+        self.wf = builtin_open(path, mode + "b")
+
+        self.mode = mode
+
+        if mode == "r":
+            self._prepare_read(auto_read)
+
+##    def save(self):
+##        format_chunk = []
+##        format_chunk.append(fourccFMT)
+##        format_chunk.append((16).to_bytes(4, "little"))
+##        format_chunk.append(self.format.to_bytes(2, "little"))
+##        format_chunk.append(self.channels.to_bytes(2, "little"))
+##        format_chunk.append(self.frequency.to_bytes(4, "little"))
+##        format_chunk.append(self.average_bytes_per_sec.to_bytes(4, "little"))
+##        format_chunk.append(self.block_align.to_bytes(2, "little"))
+##        format_chunk.append(self.bits_per_sample.to_bytes(2, "little"))
+##
+##        format_chunk_bytes = b"".join(format_chunk)
+##
+##        data_chunk = []
+##        data_chunk.append(fourccDATA)
+##        data_chunk.append(len(self.data).to_bytes(4, "little"))
+##        data_chunk.append(self.data)
+##        if len(self.data) % 2:
+##            data_chunk.append(b"\x00")
+##
+##        data_chunk_bytes = b"".join(data_chunk)
+##
+##        
+##        
+##        out = 
+            
+
+    def _prepare_read(self, auto_read):
+        if _check_file_format(self.wf) != OK:
+            raise PyWaveError("'{}' does not appear to be a wave file.".format(path))
+
+        self.chunks = _get_chunks(self.wf)
+
+        if not fourccFMT in self.chunks:
+            raise PyWaveError("'{}' is missing the 'fmt ' chunk.".format(path))
+
+        if not fourccDATA in self.chunks:
+            raise PyWaveError("'{}' is missing the 'data' chunk.".format(path))
+
+        fmt_size, fmt_position = self.chunks[fourccFMT]
+
+        if fmt_size == 16:
+            self.wfx = PCMWAVEFORMAT(_read_chunk_data(self.wf, fmt_size, fmt_position))
+        elif fmt_size == 18:
+            self.wfx = WAVEFORMATEX(_read_chunk_data(self.wf, fmt_size, fmt_position))
+        elif 18 < fmt_size <= 40:
+            self.wfx = WAVEFORMATEXTENSIBLE(_read_chunk_data(self.wf, fmt_size, fmt_position))
+        else:
+            raise PyWaveError("'{}' has an unknown or unsupported format.".format(path))
+
+        self.metadata = {}
+
+        if fourccLIST in self.chunks:
+            ChunkSize, ChunkPosition = self.chunks[fourccLIST]
+            self.wf.seek(ChunkPosition)
+            if self.wf.read(4) == fourccINFO:
+                self.metadata = _get_info_chunks(self.wf, ChunkSize, ChunkPosition + 4)
+                
+        
+        self.data_length, self.data_starts_at = self.chunks[fourccDATA]
 
         self.format = self.wfx.FormatTag
         self.channels = self.wfx.Channels
@@ -179,16 +232,19 @@ the wave file."""
         self.wf.seek(self.data_starts_at)
 
         if auto_read:
-            self.data = self.wf.read(self.data_length)
-            self.data_position = self.data_length
+            warnings.warn(DeprecationWarning("auto_read will no longer be supported in a future update.\nUse <Wave.read()> instead"))
+            self.data = self.read()
             self.wf.close()
 
-    def read(self, max_bytes = 4096):
+    def read(self, max_bytes = None):
         """Returns data (bytes).
 Reads up to <max_bytes> bytes of data and returns it.
 If the end of the file is reached, an empty bytes string
 is returned (b"")."""
-        out = self.wf.read(min(max_bytes, self.end_of_data - self.data_position))
+        if max_bytes:
+            out = self.wf.read(min(max_bytes, self.end_of_data - self.data_position))
+        else:
+            out = self.wf.read(self.end_of_data - self.data_position)
         bytes_written = len(out)
         
         if bytes_written == 0:
@@ -228,3 +284,8 @@ the file plus <offset>."""
 
     def __del__(self):
         self.wf.close()
+
+    __enter__ = lambda self: self
+    __exit__ = lambda self, t, v, tr: self.wf.close()
+
+open = lambda path, mode = "r": Wave(path, mode)

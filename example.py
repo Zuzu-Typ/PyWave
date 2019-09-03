@@ -1,8 +1,8 @@
-from PyWave import *
+import PyWave
 
 PATH = "path/to/a/wave/file.wav"
 
-wf = Wave(PATH)
+wf = PyWave.open(PATH)
 
 print("This WAVE file has the following properties:")
 print(wf.channels, "channels")
