@@ -59,7 +59,7 @@ The Wave class
 
     
     Wave.read([max_bytes = None]) -> <bytes> data
-        Reads and returns at most <max_bytes> bytes of data.
+        Reads and returns at most <max_bytes> bytes of data.
         If <max_bytes> is None, reads until the end.
     
     Wave.read_samples(number_of_samples) -> <bytes> data
