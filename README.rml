@@ -1,5 +1,5 @@
 [title]PyWave[/]
-[subtitle]Open and read Wave files[/]
+[subtitle]Open, read and write Wave files[/]
 [b]PyWave[/] is a small [b]extension[/] that enables you to [b]open[/] and [b]read[/] the data of any [b]WAVE-RIFF[/] file.
 It supports PCM, IEEE-FLOAT, EXTENSIBLE and a few other wave formats (including 32 and 64 bit waves).
 It can also create and write wave files, but it's currently limited to PCM-Waves and pure data (no metadata).
