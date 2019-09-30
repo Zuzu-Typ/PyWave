@@ -8,6 +8,7 @@ Open and read Wave files
 ************************
 | **PyWave** is a small **extension** that enables you to **open** and **read** the data of any **WAVE\-RIFF** file\.
 | It supports PCM\, IEEE\-FLOAT\, EXTENSIBLE and a few other wave formats \(including 32 and 64 bit waves\)\.
+| It can also create and write wave files\, but it\'s currently limited to PCM\-Waves and pure data \(no metadata\)\.
 | 
 
 Tiny documentation
@@ -165,5 +166,15 @@ Example
     print(wf.frequency, "Hz sample rate")
     print(wf.bitrate, "bits per second")
     print(wf.samples, "total samples")
+    
+    wf_copy = PyWave.open("path/to/a/wave/file_copy.wav", 
+                          mode = "w",
+                          channels = wf.channels,
+                          frequency = wf.frequency,
+                          bits_per_sample = wf.bits_per_sample,
+                          format = wf.format)
+    wf_copy.write(wf.read())
+    wf.close()
+    wf_copy.close()
 
  
