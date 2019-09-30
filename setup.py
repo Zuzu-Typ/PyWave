@@ -13,9 +13,9 @@ here = path.abspath(path.dirname(__file__))
 setup(
     name='PyWave',
     
-    version='0.3.0',
+    version='0.4.0',
 
-    description='Open and read Wave files',
+    description='Open, read and write Wave files',
     
     long_description=open(path.join(here, 'README.md')).read(),
     long_description_content_type='text/markdown',
@@ -54,7 +54,7 @@ setup(
         'Programming Language :: Python :: 3.7',
     ],
     
-    keywords='WAVE RIFF wav interface simple read open',
+    keywords='wave RIFF wav interface simple read write create load open',
     
     py_modules=["PyWave"],
 )
