@@ -17,8 +17,14 @@ or a wildcard import:
 
 
 [s3]The Wave class[/]
-You can use [code]open(path)[/] to open and read a wave file.
-It will return an instance of the [code]Wave[/] class.
+You can use [code]open(path)[/code] to open and read a wave file.
+
+Or you can use
+[code]
+open(path\[, mode = 'r'\, channels = 2, frequency = 48000, bits_per_sample = 16, format = WAVE_FORMAT_PCM\])[/] 
+with <mode> set to [code]'w'[/code] to open and create a writable wave file.
+
+Both will return an instance of the [code]Wave[/] class.
 
 The following methods are provided by the [code]Wave[/] class:
 [code]
@@ -28,6 +34,16 @@ Wave.read([max_bytes = None]) -> <bytes> data
 
 Wave.read_samples(number_of_samples) -> <bytes> data
     Reads and returns at most <number_of_samples> samples of data.
+    
+Wave.write(data) -> None
+    Writes <data> to the data chunk of the wave file.
+    Before write can be called, the following members have to be set:
+    - Wave.channels
+    - Wave.frequency
+    - Wave.bits_per_sample
+    
+    This function can only append to the end of the data chunk,
+    thus it is not effected by 'seek()'.
 
 Wave.seek(offset\[, whence = 0\]) -> None
     Sets the current position in the data stream.
@@ -71,7 +87,8 @@ Wave.samples <int>
     Total number of samples in the audio data
     
 Wave.data <bytes>
-    (only if <auto_read> was set to True)
+    \[Deprecated\]
+    (only exists if <auto_read> was set to True)
     Audio data as bytes
     
 Wave.metadata <dict>
@@ -91,4 +108,14 @@ print("This WAVE file has the following properties:")
 print(wf.channels, "channels")
 print(wf.frequency, "Hz sample rate")
 print(wf.bitrate, "bits per second")
-print(wf.samples, "total samples")[/]
+print(wf.samples, "total samples")
+
+wf_copy = PyWave.open("path/to/a/wave/file_copy.wav", 
+                      mode = "w",
+                      channels = wf.channels,
+                      frequency = wf.frequency,
+                      bits_per_sample = wf.bits_per_sample,
+                      format = wf.format)
+wf_copy.write(wf.read())
+wf.close()
+wf_copy.close()[/]

@@ -9,3 +9,13 @@ print(wf.channels, "channels")
 print(wf.frequency, "Hz sample rate")
 print(wf.bitrate, "bits per second")
 print(wf.samples, "total samples")
+
+wf_copy = PyWave.open("path/to/a/wave/file_copy.wav", 
+                      mode = "w",
+                      channels = wf.channels,
+                      frequency = wf.frequency,
+                      bits_per_sample = wf.bits_per_sample,
+                      format = wf.format)
+wf_copy.write(wf.read())
+wf.close()
+wf_copy.close()

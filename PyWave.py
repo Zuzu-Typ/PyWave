@@ -1,8 +1,10 @@
 import warnings
+import builtins
 
-builtin_open = __builtins__.open
+builtin_open = builtins.open
 
 bti = lambda bytes_: int.from_bytes(bytes_, "little")
+itb = lambda int_, length = 2: int_.to_bytes(length, "little")
 
 class WAVEFORMAT:
     FormatTag       = 0
@@ -137,13 +139,15 @@ def _get_info_chunks(file_, size, offset):
     return out
 
 class Wave:
-    """Opens a WAVE-RIFF file for reading.
-If <mode> is 'r', <Wave.read()> can be used to read data from
-the wave file."""
-    def __init__(self, path, auto_read = False, mode = "r"):
+    """Opens a WAVE-RIFF file for reading or writing.
+<mode> can be either (r)ead or (w)rite.
+If <mode> is 'w', the following keyword arguments can be set:
+<channels> - The number of channels (e.g. 1 == Mono or 2 == Stereo)
+<frequency> - The number of samples per second (e.g. 48000)
+<bps> (bits_per_sample) - The bit depth of each sample (e.g. 8, 16)
+<format> - Which wave format to use (e.g. WAVE_FORMAT_PCM)"""
+    def __init__(self, path, auto_read = False, mode = "r", **kwargs):
         assert mode in ("r", "w"), "mode has to be (r)ead or (w)rite"
-
-        assert mode == "r", "the only mode currently supported is (r)ead"
         
         self.wf = builtin_open(path, mode + "b")
 
@@ -151,6 +155,97 @@ the wave file."""
 
         if mode == "r":
             self._prepare_read(auto_read)
+
+        elif mode == "w":
+            self._prepared_for_writing = False
+            for keyword in kwargs:
+                arg = kwargs[keyword]
+                if keyword in ("channels", "Channels"):
+                    assert type(arg) == int, "channels have to be of type 'int'"
+                    self.channels = arg
+                elif keyword in ("samples", "samples_per_sec", "SamplesPerSec", "frequency", "Frequency"):
+                    assert type(arg) == int, "frequency / samples_per_sec has to be of type 'int'"
+                    self.frequency = self.samples_per_sec = arg
+                elif keyword in ("bits_per_sample", "bps", "BitsPerSample"):
+                    assert type(arg) == int, "bits_per_sample have to be of type 'int'"
+                    self.bits_per_sample = arg
+                elif keyword in ("format", "Format", "FormatTag", "format_tag"):
+                    assert type(arg) == int, "format has to be of type 'int'"
+                    self.format = arg
+                else:
+                    raise TypeError("Unknown keyword for Wave(): '" + keyword + "'")
+
+            if not hasattr(self, "channels"): self.channels = 2
+            if not hasattr(self, "frequency"): self.frequency = 48000
+            if not hasattr(self, "bits_per_sample"): self.bits_per_sample = 16
+            if not hasattr(self, "format"): self.format = WAVE_FORMAT_PCM
+
+    def _prepare_for_writing(self):
+        assert self.mode == "w", "this function can only be called in write mode"
+
+        for member in ("channels", "frequency", "bits_per_sample"):
+            assert hasattr(self, member), "The member '{}' is required to be set in order to start writing".format(member)
+
+        self.average_bytes_per_sec = self.frequency * self.channels * self.bits_per_sample // 8
+        self.block_align = self.channels * ((self.bits_per_sample + 7) // 8)
+        self.format = self.format if hasattr(self, "format") else WAVE_FORMAT_PCM
+
+##        assert self.format == WAVE_FORMAT_PCM, "Sorry, currently only PCM is supported.."
+
+        self.format_chunk_size = 16
+
+        self.riff_chunk_size = 36
+        self.data_chunk_size = 0
+
+        self.riff_chunk_size_offset = 4
+        self.data_chunk_size_offset = 40
+
+        self.data_starts_at = 44
+        self.data_position = 0
+
+        data_as_list = []
+
+        data_as_list.append(fourccRIFF)
+        data_as_list.append(itb(self.riff_chunk_size, 4))
+        data_as_list.append(fourccWAVE)
+
+        data_as_list.append(fourccFMT)
+        data_as_list.append(itb(self.format_chunk_size, 4))
+        data_as_list.append(itb(self.format, 2))
+        data_as_list.append(itb(self.channels, 2))
+        data_as_list.append(itb(self.frequency, 4))
+        data_as_list.append(itb(self.average_bytes_per_sec, 4))
+        data_as_list.append(itb(self.block_align, 2))
+        data_as_list.append(itb(self.bits_per_sample, 2))
+        
+        data_as_list.append(fourccDATA)
+        data_as_list.append(itb(0, 4))
+
+        data = b"".join(data_as_list)
+
+        self.wf.seek(0)
+        self.wf.write(data)
+
+    def write(self, data):
+        """Writes <data> to the data chunk of the wave file"""
+        assert type(data) == bytes, "can only write data as bytes"
+        if not self._prepared_for_writing:
+            self._prepare_for_writing()
+            self._prepared_for_writing = True
+
+        written_bytes = len(data)
+        self.wf.seek(self.data_starts_at + self.data_position)
+        self.wf.write(data)
+        
+        self.data_position += written_bytes
+        self.data_chunk_size += written_bytes
+        self.riff_chunk_size += written_bytes
+        
+        self.wf.seek(self.riff_chunk_size_offset)
+        self.wf.write(itb(self.riff_chunk_size, 4))
+        self.wf.seek(self.data_chunk_size_offset)
+        self.wf.write(itb(self.data_chunk_size, 4))
+        
 
 ##    def save(self):
 ##        format_chunk = []
@@ -180,6 +275,7 @@ the wave file."""
             
 
     def _prepare_read(self, auto_read):
+        assert self.mode == "r", "this function can only be called in read mode"
         if _check_file_format(self.wf) != OK:
             raise PyWaveError("'{}' does not appear to be a wave file.".format(path))
 
@@ -241,6 +337,7 @@ the wave file."""
 Reads up to <max_bytes> bytes of data and returns it.
 If the end of the file is reached, an empty bytes string
 is returned (b"")."""
+        assert self.mode == "r", "this function can only be called in read mode"
         if max_bytes:
             out = self.wf.read(min(max_bytes, self.end_of_data - self.data_position))
         else:
@@ -253,11 +350,19 @@ is returned (b"")."""
         self.data_position += bytes_written
         return out
 
-    read_samples = lambda self, number_of_samples: self.read(self.bytes_per_sample * number_of_samples)
+    def read_samples(self, number_of_samples):
+        """Returns <number_of_samples> samples"""
+        return self.read(self.bytes_per_sample * number_of_samples)
 
-    tell = lambda self: self.data_position
+    def tell(self):
+        """Returns the current position in the data chunk"""
+        return self.data_position
 
-    close = lambda self: self.wf.close()
+    def close(self):
+        """Closes the file pointer"""
+        if self.mode == "w" and hasattr(self, "data_chunk_size") and self.data_chunk_size % 2:
+            self.wf.write(b"\x00")
+        self.wf.close()
 
     def seek(self, offset, whence = 0):
         """Returns None.
@@ -283,9 +388,9 @@ the file plus <offset>."""
         self.wf.seek(pos)
 
     def __del__(self):
-        self.wf.close()
+        self.close()
 
     __enter__ = lambda self: self
-    __exit__ = lambda self, t, v, tr: self.wf.close()
+    __exit__ = lambda self, t, v, tr: self.close()
 
-open = lambda path, mode = "r": Wave(path, mode)
+open = lambda path, mode = "r", **kwargs: Wave(path, mode=mode, **kwargs)

@@ -50,7 +50,19 @@ Using PyWave
 The Wave class
 ^^^^^^^^^^^^^^
 | You can use :code:`open(path)` to open and read a wave file\.
-| It will return an instance of the :code:`Wave` class\.
+| 
+| Or you can use
+
+
+::
+
+    
+    open(path[, mode = 'r', channels = 2, frequency = 48000, bits_per_sample = 16, format = WAVE_FORMAT_PCM])
+
+  
+| with \<mode\> set to :code:`'w'` to open and create a writable wave file\.
+| 
+| Both will return an instance of the :code:`Wave` class\.
 | 
 | The following methods are provided by the :code:`Wave` class\:
 
@@ -64,6 +76,16 @@ The Wave class
     
     Wave.read_samples(number_of_samples) -> <bytes> data
         Reads and returns at most <number_of_samples> samples of data.
+    
+    Wave.write(data) -> None
+        Writes <data> to the data chunk of the wave file.
+        Before write can be called, the following members have to be set:
+        - Wave.channels
+        - Wave.frequency
+        - Wave.bits_per_sample
+    
+        This function can only append to the end of the data chunk,
+        thus it is not effected by 'seek()'.
     
     Wave.seek(offset[, whence = 0]) -> None
         Sets the current position in the data stream.
@@ -113,7 +135,8 @@ The Wave class
         Total number of samples in the audio data
     
     Wave.data <bytes>
-        (only if <auto_read> was set to True)
+        [Deprecated]
+        (only exists if <auto_read> was set to True)
         Audio data as bytes
     
     Wave.metadata <dict>
