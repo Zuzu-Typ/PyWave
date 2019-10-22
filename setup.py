@@ -13,7 +13,7 @@ here = path.abspath(path.dirname(__file__))
 setup(
     name='PyWave',
     
-    version='0.4.0',
+    version='0.4.1',
 
     description='Open, read and write Wave files',
     
@@ -52,6 +52,7 @@ setup(
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
     ],
     
     keywords='wave RIFF wav interface simple read write create load open',

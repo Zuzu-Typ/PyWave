@@ -9,7 +9,7 @@ It can also create and write wave files, but it's currently limited to PCM\-Wave
 **PyWave** is supposed to **replace** the builtin Python extension `wave`, which doesn't support \>16\-bit wave files\.  
   
 ### Using PyWave  
-To install PyWave you can use the PyPI:  
+To install PyWave you can use the [PyPI](https://packaging.python.org/tutorials/installing-packages/):  
 
     pip install PyWave
   

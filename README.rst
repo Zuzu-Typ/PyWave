@@ -21,7 +21,7 @@ About PyWave
 
 Using PyWave
 ------------
-| To install PyWave you can use the PyPI\:
+| To install PyWave you can use the `PyPI <https://packaging.python.org/tutorials/installing-packages/>`_\:
 
 
 ::
