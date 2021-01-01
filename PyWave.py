@@ -385,6 +385,8 @@ the file plus <offset>."""
         else:
             raise AssertionError("whence has to be either 0, 1 or 2")
 
+        self.data_position = pos - self.data_starts_at
+    
         self.wf.seek(pos)
 
     def __del__(self):
