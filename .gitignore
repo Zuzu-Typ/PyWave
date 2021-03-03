@@ -5,3 +5,6 @@ __pycache__/
 dist/
 build/
 PyWave.egg-info/
+/.vs/202102 PyWave/v16/.suo
+/.vs
+/path/to/a/wave/file_copy.wav

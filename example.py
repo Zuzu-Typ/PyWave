@@ -19,3 +19,8 @@ wf_copy = PyWave.open("path/to/a/wave/file_copy.wav",
 wf_copy.write(wf.read())
 wf.close()
 wf_copy.close()
+
+if len(wf.messages) > 0:
+    print ('\nAll warnings during processing:\n-------------------------------')
+    for msg in wf.messages:
+        print ('  {}'.format(msg))

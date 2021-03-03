@@ -5,6 +5,7 @@ builtin_open = builtins.open
 
 bti = lambda bytes_: int.from_bytes(bytes_, "little")
 itb = lambda int_, length = 2: int_.to_bytes(length, "little")
+clstr = lambda bytes_: bytes_.decode().replace('\x00','')      # for reading null-terminated strings in DISP/bext chunks
 
 class WAVEFORMAT:
     FormatTag       = 0
@@ -68,13 +69,33 @@ class PyWaveError(Exception):
 class PyWaveWarning(UserWarning):
     pass
 
-fourccRIFF  = b"RIFF"
-fourccDATA  = b"data"
-fourccFMT   = b"fmt "
-fourccWAVE  = b"WAVE"
-fourccXWMA  = b"XWMA"
-fourccLIST  = b"LIST"
-fourccINFO  = b"INFO"
+# RIFF WAVE chunks
+fourccRIFF  = b"RIFF"   # RIFF file tag (1st 4 bytes)
+fourccWAVE  = b"WAVE"   # RIFF subchunk: WAVE file tag (3rd 4 bytes)
+
+# WAVE subchunks that are part of the 1991 standard (https://www.aelius.com/njh/wavemetatools/doc/riffmci.pdf)
+fourccFMT   = b"fmt "   # format chunk, required for WAV-files
+fourccDATA  = b"data"   # data chunk, required for WAV-files
+fourccFACT  = b"fact"   # Fact chunks exist in all wave files that are compressed or that have a wave list chunk. 
+                        # See https://www.recordingblogs.com/wiki/fact-chunk-of-a-wave-file / https://sites.google.com/site/musicgapi/technical-documents/wav-file-format / http://www-mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html
+fourccDISP  = b"DISP"   # Clipboard contents (usually CF_TEXT = 0x00000001), see http://netghost.narod.ru/gff/vendspec/micriff/ms_riff.txt and https://docs.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats
+
+# Chunks used to pad out data when we need more than one byte:
+fourccJUNK  = b"JUNK"   # This chunk is there just as placeholder for future data and can always be ignored.
+fourccPAD   = b"PAD "   # This chunk is there to pad data to align it on certain boundaries. Used when padding to more than a WORD boundary (like 8 bytes).
+fourccFake  = b"Fake"   # Same as the PAD chunk. 
+
+# LIST chunks and subchunks
+fourccLIST  = b"LIST"   # AVI MetaEdit LIST chunk
+fourccLIST_INFO = b"INFO"   # LIST Subchunk with INFO tags, see https://mediaarea.net/AVIMetaEdit/core_doc_help for values inside the metadata.
+fourccLIST_ADTL = b"adtl"   # LIST Subchunk that goes together with a "cue" chunk. It's an Associated Data List that can contain labl, note, ltxt and file subsubchunks
+fourccLIST_ADTL_LABL  = b"labl"   # The label chunk is always contained inside of an associated data list chunk. It is used to associate a text label with a Cue Point. 
+fourccLIST_ADTL_NOTE  = b"note"   # The note chunk is always contained inside of an associated data list chunk. It is used to associate a text comment with a Cue Point.
+fourccLIST_ADTL_LTXT  = b"ltxt"   # The labeled text chunk is always contained inside of an associated data list chunk. It is used to associate a text label with a region or section of waveform data.
+
+# Chunks that are not meant for uncompressed WAV files
+fourccXWMA  = b"XWMA"   # XAudio2 compressed data. We can't parse this right now.
+
 
 OK = 0
 ERROR_NOT_A_WAVE_FILE = -1
@@ -83,60 +104,86 @@ def _read_chunk_data(file_, size, offset):
     file_.seek(offset)
     return file_.read(size)
 
+
 def _check_file_format(file_):
     file_.seek(0)
     RIFFChunk = file_.read(4)
     file_.seek(4, 1)
     WAVETag = file_.read(4)
 
-    if RIFFChunk != fourccRIFF or not WAVETag in (fourccWAVE, fourccXWMA):
+    if RIFFChunk != fourccRIFF or not WAVETag in (fourccWAVE):
         return ERROR_NOT_A_WAVE_FILE
     return 0
 
-def _get_chunks(file_):
-    file_.seek(4)
-    total_size = bti(file_.read(4))
+
+def _get_chunks(file_, messages):
+    file_.seek(4)                       # skip 'RIFF' at start of file
+    total_size = bti(file_.read(4))     # This should be the size of the entire file in bytes minus 8 bytes for the two fields not included in this count. Not always correct!
     file_.seek(4, 1)
     
-    out = {}
+    out = {}                            # WARNING: a set instead of a list only works when each chunk is unique. But it is valid to have more than one LIST chunk.
     Offset = 12
     
     read_bytes = 4
     read = True
+
+    # An incorrect total_size in the file can cause reads past end of file.
+    # Fixed by checking for an empty read when trying to read the next chunk (empty read = EOF)
+    # We also pre-emptively prevent the scenario where we encounter a double top-level chunk (like two versions of ID3). 
+    # We make an exception only for the LIST chunk, that can occur multiple times but with a different form type ID.
     while read_bytes < total_size and read:
         read = file_.read(4)
-        read_bytes += len(read)
-        ChunkType = read
+        if read != b'':             # if not EOF
+            read_bytes += len(read)
+            ChunkType = read
+    
+            read = file_.read(4)
+            read_bytes += len(read)         # should always be 4 unless we're at EOF
+            ChunkDataSize = bti(read)
+   
+            Offset += 8
+            if out.get(ChunkType) != None and ChunkType != fourccLIST:
+                 messages.append("ERROR: chunk '{0}' has a duplicate (ignored) chunk of the same type at position {1} with size {2}!".format(ChunkType.decode(),Offset,ChunkDataSize))
+            else:
+                out[ChunkType] = (ChunkDataSize, Offset)
+    
+            file_.seek(ChunkDataSize, 1)
+            read_bytes += ChunkDataSize
+            Offset += ChunkDataSize
 
-        read = file_.read(4)
-        read_bytes += len(read)
-        ChunkDataSize = bti(read)
-        ChunkDataSize += ChunkDataSize % 2
+            # "All information in a wave file must be word aligned (i.e., aligned at every two bytes)."
+            # "If a chunk has an odd number of bytes, then it will be padded with a zero byte, although this byte will not be counted in the size of the chunk."
+            # Now, here we have an issue. We should align on words, but if we do that, we may miss the next chunk by 1, for misaligned chunks. 
+            # So if we get uneven data, keep it as reported. The parser for the chunk just needs to deal with it and correctly align the data on word boundaries.
+            # If our next read is not at the EOF, then check if our next read is another chunk by checking for a null byte read. 
+            # If we read a null byte, keep it skipped. Otherwise, go back 1 byte.
+            if read_bytes < total_size and (ChunkDataSize % 2 == 1):
+                read = file_.read(1)                                # read the padding byte to see if it is actually a padding byte, or the first byte of a chunk
+                if read not in (b'',b'\x00'): 
+                    file_.seek(-1, 1)                               # if we are aligned on non-word (wrong), then go back 1 byte
 
-        Offset += 8
-        
-
-        out[ChunkType] = (ChunkDataSize, Offset)
-
-        Offset += ChunkDataSize
-        file_.seek(ChunkDataSize, 1)
-        read_bytes += ChunkDataSize
-
+    # If the read_bytes are not the same as the total_size at EOF, we need to correct total_size to the real size value in read_bytes.
+    if total_size != read_bytes: total_size = read_bytes
     return out
 
-def _get_info_chunks(file_, size, offset):
-    file_.seek(offset)
+
+# Specific function to read the INFO subchunk in the LIST chunk.
+# See for specs: https://www.recordingblogs.com/wiki/list-chunk-of-a-wave-file
+def _get_info_chunk(file_, size, offset):
+    file_.seek(offset)                      # the offset is positioned after the INFO subchunk.
     out = {}
     read_bytes = 4
     while read_bytes < size:
-        name    = file_.read(4)
-        size_   = bti(file_.read(4))
-        data    = file_.read(size_-1)
-        file_.seek(1, 1)
-        read_bytes += 8 + size_
+        name    = file_.read(4)             # get the info tag (IARL, ISFT, ICR, etc. )
+        size_   = bti(file_.read(4))        # get the size of the info tag. 
+        padbyte = size_ % 2                 # all text must be word aligned, so add 1 byte as required.
+        data    = file_.read(size_-1)       # do not read the 00 terminator of each line.
+        file_.seek(padbyte + 1, 1)          # skip 1 character + padding byte if required
+        read_bytes += 8 + size_ + padbyte   # don't forget to add the padding byte to the number of bytes read
 
-        out[name.decode()] = data.decode()
+        out[name.decode()] = clstr(data)
     return out
+
 
 class Wave:
     """Opens a WAVE-RIFF file for reading or writing.
@@ -148,9 +195,12 @@ If <mode> is 'w', the following keyword arguments can be set:
 <format> - Which wave format to use (e.g. WAVE_FORMAT_PCM)"""
     def __init__(self, path, auto_read = False, mode = "r", **kwargs):
         assert mode in ("r", "w"), "mode has to be (r)ead or (w)rite"
+
+        self.messages = []      # this list will hold our warning messages and even errors (not the type that causes an abort though).
         
         self.wf = builtin_open(path, mode + "b")
 
+        self.path = path
         self.mode = mode
 
         if mode == "r":
@@ -179,6 +229,7 @@ If <mode> is 'w', the following keyword arguments can be set:
             if not hasattr(self, "frequency"): self.frequency = 48000
             if not hasattr(self, "bits_per_sample"): self.bits_per_sample = 16
             if not hasattr(self, "format"): self.format = WAVE_FORMAT_PCM
+
 
     def _prepare_for_writing(self):
         assert self.mode == "w", "this function can only be called in write mode"
@@ -277,15 +328,15 @@ If <mode> is 'w', the following keyword arguments can be set:
     def _prepare_read(self, auto_read):
         assert self.mode == "r", "this function can only be called in read mode"
         if _check_file_format(self.wf) != OK:
-            raise PyWaveError("'{}' does not appear to be a wave file.".format(path))
+            raise PyWaveError("'{}' does not appear to be a wave file.".format(self.path))
 
-        self.chunks = _get_chunks(self.wf)
+        self.chunks = _get_chunks(self.wf, self.messages)
 
         if not fourccFMT in self.chunks:
-            raise PyWaveError("'{}' is missing the 'fmt ' chunk.".format(path))
+            raise PyWaveError("'{}' is missing the 'fmt ' chunk.".format(self.path))
 
         if not fourccDATA in self.chunks:
-            raise PyWaveError("'{}' is missing the 'data' chunk.".format(path))
+            raise PyWaveError("'{}' is missing the 'data' chunk.".format(self.path))
 
         fmt_size, fmt_position = self.chunks[fourccFMT]
 
@@ -296,17 +347,27 @@ If <mode> is 'w', the following keyword arguments can be set:
         elif 18 < fmt_size <= 40:
             self.wfx = WAVEFORMATEXTENSIBLE(_read_chunk_data(self.wf, fmt_size, fmt_position))
         else:
-            raise PyWaveError("'{}' has an unknown or unsupported format.".format(path))
+            raise PyWaveError("'{}' has an unknown or unsupported format.".format(self.path))
 
         self.metadata = {}
 
         if fourccLIST in self.chunks:
             ChunkSize, ChunkPosition = self.chunks[fourccLIST]
             self.wf.seek(ChunkPosition)
-            if self.wf.read(4) == fourccINFO:
-                self.metadata = _get_info_chunks(self.wf, ChunkSize, ChunkPosition + 4)
-                
-        
+            # correct alignment errors by reading 1 byte more than required and testing it for a null byte.
+            fourCC = self.wf.read(5)
+            if fourCC[0] == 0:          # the subchunk tag can be misaligned if someone added a "\x00" to the LIST string. If that happened we compensate for that.
+                padding = 1
+                fourCC = fourCC[1:]
+            else:
+                padding = 0
+                fourCC = fourCC[:4]
+            if fourccLIST_INFO == fourCC:
+                self.metadata[fourCC.decode()] = _get_info_chunk(self.wf, ChunkSize, ChunkPosition + 4 + padding)
+            # otherwise read the LIST subchunk adtl as raw metadata
+            elif fourccLIST_ADTL == fourCC:
+                self.metadata[fourCC.decode()] = _read_chunk_data(self.wf, ChunkSize, ChunkPosition)
+       
         self.data_length, self.data_starts_at = self.chunks[fourccDATA]
 
         self.format = self.wfx.FormatTag
@@ -317,9 +378,7 @@ If <mode> is 'w', the following keyword arguments can be set:
         self.bits_per_sample = self.wfx.BitsPerSample
 
         self.bitrate = self.average_bytes_per_sec * 8
-
         self.bytes_per_sample = (self.bits_per_sample // 8)
-
         self.samples = (self.data_length // self.bytes_per_sample // self.channels)
 
         self.data_position = 0
@@ -332,6 +391,7 @@ If <mode> is 'w', the following keyword arguments can be set:
             self.data = self.read()
             self.wf.close()
 
+
     def read(self, max_bytes = None):
         """Returns data (bytes).
 Reads up to <max_bytes> bytes of data and returns it.
@@ -339,30 +399,42 @@ If the end of the file is reached, an empty bytes string
 is returned (b"")."""
         assert self.mode == "r", "this function can only be called in read mode"
         if max_bytes:
+            # Software must process a multiple of 1 or more BlockAlign bytes of data at a time.
+            # Try using wf.read(3) before you read the rest of the file to see the effect of leaving this out :)
+            if max_bytes < self.block_align: 
+                max_bytes = self.block_align
+                self.messages.append("Warning: attempt to read less bytes than the blockalign size of {}.".format(self.block_align))
+            if (max_bytes % self.block_align) != 0:
+                max_bytes = ((max_bytes // self.block_align) + 1) * self.block_align
+                self.messages.append("Warning: attempt to read a number of bytes that is not a multiple of the blockalign size of {}.".format(self.block_align))
             out = self.wf.read(min(max_bytes, self.end_of_data - self.data_position))
         else:
             out = self.wf.read(self.end_of_data - self.data_position)
-        bytes_written = len(out)
+        bytes_read = len(out)
         
-        if bytes_written == 0:
+        if bytes_read == 0:
             return b""
         
-        self.data_position += bytes_written
+        self.data_position += bytes_read
         return out
+
 
     def read_samples(self, number_of_samples):
         """Returns <number_of_samples> samples"""
         return self.read(self.bytes_per_sample * number_of_samples)
 
+
     def tell(self):
         """Returns the current position in the data chunk"""
         return self.data_position
+
 
     def close(self):
         """Closes the file pointer"""
         if self.mode == "w" and hasattr(self, "data_chunk_size") and self.data_chunk_size % 2:
             self.wf.write(b"\x00")
         self.wf.close()
+
 
     def seek(self, offset, whence = 0):
         """Returns None.
@@ -389,8 +461,10 @@ the file plus <offset>."""
     
         self.wf.seek(pos)
 
+
     def __del__(self):
         self.close()
+
 
     __enter__ = lambda self: self
     __exit__ = lambda self, t, v, tr: self.close()
