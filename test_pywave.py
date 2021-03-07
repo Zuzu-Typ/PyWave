@@ -33,7 +33,7 @@ def test_metadata(wf):
 
     assert wf.bits_per_sample == 32         # 1 sample = 32 bit float
     assert wf.bits_per_sample == wf.bytes_per_sample * 8
-    assert wf.block_align == wf.bits_per_sample * wf.channels  # 32bit float, 2 channels = 8 bytes minimum read for 1 sample 
+    assert wf.block_align == wf.bytes_per_sample * wf.channels  # 32bit float = 4 bytes * 2 channels = 8 bytes minimum read for 1 sample 
 
     assert wf.data_length == wf.samples * wf.channels * wf.bytes_per_sample # 99328 * 2 channels * 4 bytes per sample
     assert wf.samples == 99328
