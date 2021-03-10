@@ -23,7 +23,7 @@ or a wildcard import:
   
   
   
-#### The Wave class  
+#### The Wave class
 You can use `open(path)` to open and read a wave file\.  
   
 Or you can use  
@@ -133,3 +133,21 @@ And it has the following members:
     wf_copy.write(wf.read())
     wf.close()
     wf_copy.close()
+
+
+#### PyTest
+
+PyTest support has been added in the form of a test_pywave.py module, in order to facilitate extensions to the module. In order to use it, one should install PyTest first by running:
+
+```
+pip install -r pytest_requirements.txt
+```
+
+Once installed, you should be able to simply run
+
+```
+pytest
+```
+
+In the repo folder, and see 2 items being collected, and 2 tests passing. 
+
