@@ -42,3 +42,21 @@ def test_metadata(wf):
     assert wf.data_starts_at == 88
     assert wf.data_length == ( wf.end_of_data - wf.data_starts_at )
 
+
+def test_static_methods(wf):
+    waveformatcode, waveformatname = wf.get_format_name( wf.format)
+    assert waveformatcode == 'WAVE_FORMAT_IEEE_FLOAT'
+    assert waveformatname == 'IEEE Float'
+
+    assert wf.get_channel_layout(0b111111,6) == ['Front Left', 'Front Right', 'Front Center', 'Low Frequency', 'Back Left (Surround Back Left)', 'Back Right (Surround Back Right)']
+    assert wf.get_channel_setup_name(0b111111, 6) == '5.1'
+
+
+# test if the __del__ on the class does not fail when the file cannot be opened and __init__ fails
+# also test whether we get the right exception back
+#
+# an Attribute Error in PyWave.__del__ indicates failure to correctly initialize variables before opening a wavefile.
+# a FileNotFoundError is the expected outcome.
+def test_delete():
+    with pytest.raises(FileNotFoundError):
+        wavefile = PyWave.open("xxxx.yyy")
