@@ -13,7 +13,7 @@ here = path.abspath(path.dirname(__file__))
 setup(
     name='PyWave',
     
-    version='0.4.2',
+    version='0.5.0',
 
     description='Open, read and write Wave files',
     
