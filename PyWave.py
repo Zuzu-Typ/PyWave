@@ -259,6 +259,10 @@ If <mode> is 'w', the following keyword arguments can be set:
             if not hasattr(self, "bits_per_sample"):    self.bits_per_sample = 16
             if not hasattr(self, "format"):             self.format = WAVE_FORMAT_PCM
 
+    @property
+    def format_name(self):
+        return Wave.get_format_name(self.format)
+
 
     def _prepare_for_writing(self):
         assert self.mode == "w", "this function can only be called in write mode"

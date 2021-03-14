@@ -42,11 +42,13 @@ def test_metadata(wf):
     assert wf.data_starts_at == 88
     assert wf.data_length == ( wf.end_of_data - wf.data_starts_at )
 
-
-def test_static_methods(wf):
-    waveformatcode, waveformatname = wf.get_format_name( wf.format)
+    waveformatcode, waveformatname = wf.format_name
     assert waveformatcode == 'WAVE_FORMAT_IEEE_FLOAT'
     assert waveformatname == 'IEEE Float'
+
+
+def test_static_methods(wf):
+    assert wf.get_format_name(wf.format) == wf.format_name
 
     assert wf.get_channel_layout(0b111111,6) == ['Front Left', 'Front Right', 'Front Center', 'Low Frequency', 'Back Left (Surround Back Left)', 'Back Right (Surround Back Right)']
     assert wf.get_channel_setup_name(0b111111, 6) == '5.1'
