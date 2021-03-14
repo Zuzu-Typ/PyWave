@@ -5,3 +5,5 @@ __pycache__/
 dist/
 build/
 PyWave.egg-info/
+.vs/
+path/to/a/wave/file_copy.wav
