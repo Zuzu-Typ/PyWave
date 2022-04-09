@@ -161,7 +161,8 @@ fourccSMPL  = b"smpl"   # Sample chunk containing information about note and pit
 fourccTLST  = b"tlst"   # SoundForge chunk: Trigger List (see: http://jdarks.com/files/soundforge5_manual.pdf) - only works if there is either a cue and/or plst chunk present.
 
 # Metadata chunks
-fourccXMP   = b"_PMX"   # Adobe XMP specification for XML metadata of (raw) images, see https://wwwimages2.adobe.com/content/dam/acom/en/devnet/xmp/pdfs/XMP%20SDK%20Release%20cc-2016-08/XMPSpecificationPart3.pdf
+fourccXMP   = b"_PMX"   # XML chunk. Adobe XMP specification for XML metadata of (raw) images, see https://wwwimages2.adobe.com/content/dam/acom/en/devnet/xmp/pdfs/XMP%20SDK%20Release%20cc-2016-08/XMPSpecificationPart3.pdf
+fourccIXML  = b"iXML"   # XML chunk. See http://www.ixml.info/ for full specs.
 fourccINST  = b"inst"   # The instrument chunk is used to describe how the waveform should be played as an instrument sound. See https://sites.google.com/site/musicgapi/technical-documents/wav-file-format#inst
 fourccID3A  = b"id3 "   # ID3 metadata chunk. See https://en.wikipedia.org/wiki/ID3 and https://id3.org/id3v2.3.0. This can be read by PyTagLib so why bother? It is a very complex format to read and write.
 fourccID3B  = b"ID3 "   # Uppercase version of the ID3 fourCC code.
@@ -339,10 +340,10 @@ If <mode> is 'w', the following keyword arguments can be set:
 
         self.chunks = self._get_chunks()
 
-        if not fourccFMT in self.chunks:
+        if fourccFMT not in self.chunks:
             raise PyWaveError("'{}' is missing the 'fmt ' chunk.".format(self.path))
 
-        if not fourccDATA in self.chunks:
+        if fourccDATA not in self.chunks:
             raise PyWaveError("'{}' is missing the 'data' chunk.".format(self.path))
 
         fmt_size, fmt_position = self.chunks[fourccFMT]
@@ -379,7 +380,7 @@ If <mode> is 'w', the following keyword arguments can be set:
                 self.metadata[fourCC.decode()] = self._read_chunk_data(ChunkSize, ChunkPosition)
             # the wavl (wavelist) subchunk is unsupported and raises an error.
             elif fourccLIST_WAVL == fourCC:
-                self.metadata[fourCC.decode()] = _read_chunk_data(self.wf, ChunkSize, ChunkPosition)
+                self.metadata[fourCC.decode()] = self._read_chunk_data(ChunkSize, ChunkPosition)
                 self.messages.append("Error: subchunk tag for LIST subchunk '{}' is unsupported. Please raise an issue on Github.".format(fourCC.decode()))
                 raise PyWaveError("'{}' has unsupported WAVELIST chunks. Please raise an issue on Github.".format(self.path))
             else:
