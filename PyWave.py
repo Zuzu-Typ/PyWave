@@ -502,9 +502,10 @@ is returned (b"")."""
             if (max_bytes % self.block_align) != 0:
                 max_bytes = ((max_bytes // self.block_align) + 1) * self.block_align
                 self.messages.append("Warning: attempt to read a number of bytes that is not a multiple of the blockalign size of {}.".format(self.block_align))
-            out = self.wf.read(min(max_bytes, self.end_of_data - self.data_position))
+            out = self.wf.read(min(max_bytes, self.data_length - self.data_position))
         else:
-            out = self.wf.read(self.end_of_data - self.data_position)
+            out = self.wf.read(self.data_length - self.data_position)
+
         bytes_read = len(out)
 
         if bytes_read == 0:
