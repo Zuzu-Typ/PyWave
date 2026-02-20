@@ -161,7 +161,8 @@ fourccSMPL  = b"smpl"   # Sample chunk containing information about note and pit
 fourccTLST  = b"tlst"   # SoundForge chunk: Trigger List (see: http://jdarks.com/files/soundforge5_manual.pdf) - only works if there is either a cue and/or plst chunk present.
 
 # Metadata chunks
-fourccXMP   = b"_PMX"   # Adobe XMP specification for XML metadata of (raw) images, see https://wwwimages2.adobe.com/content/dam/acom/en/devnet/xmp/pdfs/XMP%20SDK%20Release%20cc-2016-08/XMPSpecificationPart3.pdf
+fourccXMP   = b"_PMX"   # XML chunk. Adobe XMP specification for XML metadata of (raw) images, see https://wwwimages2.adobe.com/content/dam/acom/en/devnet/xmp/pdfs/XMP%20SDK%20Release%20cc-2016-08/XMPSpecificationPart3.pdf
+fourccIXML  = b"iXML"   # XML chunk. See http://www.ixml.info/ for full specs.
 fourccINST  = b"inst"   # The instrument chunk is used to describe how the waveform should be played as an instrument sound. See https://sites.google.com/site/musicgapi/technical-documents/wav-file-format#inst
 fourccID3A  = b"id3 "   # ID3 metadata chunk. See https://en.wikipedia.org/wiki/ID3 and https://id3.org/id3v2.3.0. This can be read by PyTagLib so why bother? It is a very complex format to read and write.
 fourccID3B  = b"ID3 "   # Uppercase version of the ID3 fourCC code.
@@ -259,6 +260,7 @@ If <mode> is 'w', the following keyword arguments can be set:
             if not hasattr(self, "bits_per_sample"):    self.bits_per_sample = 16
             if not hasattr(self, "format"):             self.format = WAVE_FORMAT_PCM
 
+
     @property
     def format_name(self):
         return Wave.get_format_name(self.format)
@@ -339,10 +341,10 @@ If <mode> is 'w', the following keyword arguments can be set:
 
         self.chunks = self._get_chunks()
 
-        if not fourccFMT in self.chunks:
+        if fourccFMT not in self.chunks:
             raise PyWaveError("'{}' is missing the 'fmt ' chunk.".format(self.path))
 
-        if not fourccDATA in self.chunks:
+        if fourccDATA not in self.chunks:
             raise PyWaveError("'{}' is missing the 'data' chunk.".format(self.path))
 
         fmt_size, fmt_position = self.chunks[fourccFMT]
@@ -379,7 +381,7 @@ If <mode> is 'w', the following keyword arguments can be set:
                 self.metadata[fourCC.decode()] = self._read_chunk_data(ChunkSize, ChunkPosition)
             # the wavl (wavelist) subchunk is unsupported and raises an error.
             elif fourccLIST_WAVL == fourCC:
-                self.metadata[fourCC.decode()] = _read_chunk_data(self.wf, ChunkSize, ChunkPosition)
+                self.metadata[fourCC.decode()] = self._read_chunk_data(ChunkSize, ChunkPosition)
                 self.messages.append("Error: subchunk tag for LIST subchunk '{}' is unsupported. Please raise an issue on Github.".format(fourCC.decode()))
                 raise PyWaveError("'{}' has unsupported WAVELIST chunks. Please raise an issue on Github.".format(self.path))
             else:
@@ -405,6 +407,11 @@ If <mode> is 'w', the following keyword arguments can be set:
             ChunkSize, ChunkPosition = self.chunks[fourccPEAK]
             self.wf.seek(ChunkPosition)
             self.metadata[fourccPEAK.decode()] = self._get_peak_chunk(ChunkSize, ChunkPosition)
+
+        if fourccFACT in self.chunks:
+            ChunkSize, ChunkPosition = self.chunks[fourccFACT]
+            self.wf.seek(ChunkPosition)
+            self.metadata[fourccFACT.decode()] = self._get_fact_chunk(ChunkSize, ChunkPosition)
 
         # once we've checked the known chunks, add everything that is not yet parsed to the metadata as bytestring through the generic reader
         for fourCC in self.chunks:
@@ -495,9 +502,10 @@ is returned (b"")."""
             if (max_bytes % self.block_align) != 0:
                 max_bytes = ((max_bytes // self.block_align) + 1) * self.block_align
                 self.messages.append("Warning: attempt to read a number of bytes that is not a multiple of the blockalign size of {}.".format(self.block_align))
-            out = self.wf.read(min(max_bytes, self.end_of_data - self.data_position))
+            out = self.wf.read(min(max_bytes, self.data_length - self.data_position))
         else:
-            out = self.wf.read(self.end_of_data - self.data_position)
+            out = self.wf.read(self.data_length - self.data_position)
+
         bytes_read = len(out)
 
         if bytes_read == 0:
@@ -804,6 +812,75 @@ Returns `OK` (0) on success and `ERROR_NOT_A_WAVE_FILE` (-1) on failure."""
         out['URL'] = clstr(data[1024:2048])
         out['TagText'] = clstr(data[2048:])
         return out
+
+
+    # Specific function to read the FACT chunk
+    # See for specs: https://sites.google.com/site/musicgapi/technical-documents/wav-file-format#fact
+    def _get_fact_chunk(self, size, offset):
+        self.wf.seek(offset)                     # the offset is positioned after the FACT tag + size tag.
+        out = {}
+
+        nr_of_samples = bti(self.wf.read(4))     # get the number of uncompressed samples in the compressed WAV. Together with samples per second this will give the length of the WAV in seconds.
+        size += size % 2                         # All text must be word aligned, so add 1 byte as required.
+        size -= 4
+
+        # the only thing that should be in the fact chunk is the nr_of_samples.
+        # there should be nothing else. If there is, it's basically an error.
+        if size > 0:
+            data = self.wf.read(size).decode()
+            self.messages.append("Warning: subchunk tag for FACT subchunk has additional data '{}'. FACT subchunks should only contain the nr of samples.".format(data.encode()))
+        else:
+            data = None
+
+        # it's possible there is more data, but so far only the first field has a defined meaning.
+        out['nr_of_samples'] = nr_of_samples
+        out['data'] = data
+        return out
+
+
+    # wavedata_datatype is a property that exposes the datatype of the current WAV-file.
+    @property
+    def wavedata_datatype(self):
+        """
+        property wavedata_datatype() returns the datatype of the data in the WAV file.
+
+        Example:
+            wavedata_datatype() for a 16-bit WAV file returns "int16" (signed 16 bit). For a 32-bit type it depends on the format.
+
+            possible returns
+            uint8   for 8 bit WAV files (unsigned by default)
+            int16   for 16 bit WAV files
+            int24   for 24 bit WAV files
+            float32 for 32 bit WAV files (default) if wf.format == wf.WAVE_FORMAT_IEEE_FLOAT or (wf.format == wf.WAVE_FORMAT_EXTENSIBLE and wf.subformat == wf.WAVE_FORMAT_IEEE_FLOAT))
+            int32   for 32 bit WAV files that are not floating point
+        
+        Scope:
+            This property is intended for uncompressed PCM/IEEE-float WAV data only.
+            Compressed WAV formats are not supported.
+            float64 WAV data is not supported.
+
+            For WAVE_FORMAT_EXTENSIBLE, this returns the container datatype based on BitsPerSample. 
+            It does not use ValidBitsPerSample (wfx.Samples), so 24-valid-bits-in-32-container is reported as int32.
+
+        Args:
+            None.
+
+        Returns:
+            A string describing the type.
+        """
+        if 8 == self.bits_per_sample:
+            return 'uint8'
+        elif 16 == self.bits_per_sample:
+            return 'int16'
+        elif 24 == self.bits_per_sample:
+            return 'int24'
+        elif 32 == self.bits_per_sample:
+            if self.format == WAVE_FORMAT_IEEE_FLOAT or (self.format == WAVE_FORMAT_EXTENSIBLE and self.subformat == WAVE_FORMAT_IEEE_FLOAT):
+                return 'float32'
+            else:
+                return 'int32'      # Is part of the standard now (FLAC uses 32bit integers) and should be supported.
+        else:
+            raise ValueError(f"Unknown datatype for wavedata. Bits per sample: {self.bits_per_sample}. Format: {self.format}. Subformat: {self.subformat}.")
 
 
     # This utility function will enable people to easily convert code to name.
