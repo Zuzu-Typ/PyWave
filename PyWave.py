@@ -260,6 +260,7 @@ If <mode> is 'w', the following keyword arguments can be set:
             if not hasattr(self, "bits_per_sample"):    self.bits_per_sample = 16
             if not hasattr(self, "format"):             self.format = WAVE_FORMAT_PCM
 
+
     @property
     def format_name(self):
         return Wave.get_format_name(self.format)
@@ -834,6 +835,51 @@ Returns `OK` (0) on success and `ERROR_NOT_A_WAVE_FILE` (-1) on failure."""
         out['nr_of_samples'] = nr_of_samples
         out['data'] = data
         return out
+
+
+    # wavedata_datatype is a property that exposes the datatype of the current WAV-file.
+    @property
+    def wavedata_datatype(self):
+        """
+        property wavedata_datatype() returns the datatype of the data in the WAV file.
+
+        Example:
+            wavedata_datatype() for a 16-bit WAV file returns "int16" (signed 16 bit). For a 32-bit type it depends on the format.
+
+            possible returns
+            uint8   for 8 bit WAV files (unsigned by default)
+            int16   for 16 bit WAV files
+            int24   for 24 bit WAV files
+            float32 for 32 bit WAV files (default) if wf.format == wf.WAVE_FORMAT_IEEE_FLOAT or (wf.format == wf.WAVE_FORMAT_EXTENSIBLE and wf.subformat == wf.WAVE_FORMAT_IEEE_FLOAT))
+            int32   for 32 bit WAV files that are not floating point
+        
+        Scope:
+            This property is intended for uncompressed PCM/IEEE-float WAV data only.
+            Compressed WAV formats are not supported.
+            float64 WAV data is not supported.
+
+            For WAVE_FORMAT_EXTENSIBLE, this returns the container datatype based on BitsPerSample. 
+            It does not use ValidBitsPerSample (wfx.Samples), so 24-valid-bits-in-32-container is reported as int32.
+
+        Args:
+            None.
+
+        Returns:
+            A string describing the type.
+        """
+        if 8 == self.bits_per_sample:
+            return 'uint8'
+        elif 16 == self.bits_per_sample:
+            return 'int16'
+        elif 24 == self.bits_per_sample:
+            return 'int24'
+        elif 32 == self.bits_per_sample:
+            if self.format == WAVE_FORMAT_IEEE_FLOAT or (self.format == WAVE_FORMAT_EXTENSIBLE and self.subformat == WAVE_FORMAT_IEEE_FLOAT):
+                return 'float32'
+            else:
+                return 'int32'      # Is part of the standard now (FLAC uses 32bit integers) and should be supported.
+        else:
+            raise ValueError(f"Unknown datatype for wavedata. Bits per sample: {self.bits_per_sample}. Format: {self.format}. Subformat: {self.subformat}.")
 
 
     # This utility function will enable people to easily convert code to name.
