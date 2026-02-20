@@ -407,6 +407,11 @@ If <mode> is 'w', the following keyword arguments can be set:
             self.wf.seek(ChunkPosition)
             self.metadata[fourccPEAK.decode()] = self._get_peak_chunk(ChunkSize, ChunkPosition)
 
+        if fourccFACT in self.chunks:
+            ChunkSize, ChunkPosition = self.chunks[fourccFACT]
+            self.wf.seek(ChunkPosition)
+            self.metadata[fourccFACT.decode()] = self._get_fact_chunk(ChunkSize, ChunkPosition)
+
         # once we've checked the known chunks, add everything that is not yet parsed to the metadata as bytestring through the generic reader
         for fourCC in self.chunks:
             if fourCC not in KNOWN_FOURCC:
@@ -804,6 +809,30 @@ Returns `OK` (0) on success and `ERROR_NOT_A_WAVE_FILE` (-1) on failure."""
         # out['Reserved'] = data[748:1024]    # reserved data is ignored and set to \x00 on writing as long as the standard does not dedicate this area.
         out['URL'] = clstr(data[1024:2048])
         out['TagText'] = clstr(data[2048:])
+        return out
+
+
+    # Specific function to read the FACT chunk
+    # See for specs: https://sites.google.com/site/musicgapi/technical-documents/wav-file-format#fact
+    def _get_fact_chunk(self, size, offset):
+        self.wf.seek(offset)                     # the offset is positioned after the FACT tag + size tag.
+        out = {}
+
+        nr_of_samples = bti(self.wf.read(4))     # get the number of uncompressed samples in the compressed WAV. Together with samples per second this will give the length of the WAV in seconds.
+        size += size % 2                         # All text must be word aligned, so add 1 byte as required.
+        size -= 4
+
+        # the only thing that should be in the fact chunk is the nr_of_samples.
+        # there should be nothing else. If there is, it's basically an error.
+        if size > 0:
+            data = self.wf.read(size).decode()
+            self.messages.append("Warning: subchunk tag for FACT subchunk has additional data '{}'. FACT subchunks should only contain the nr of samples.".format(data.encode()))
+        else:
+            data = None
+
+        # it's possible there is more data, but so far only the first field has a defined meaning.
+        out['nr_of_samples'] = nr_of_samples
+        out['data'] = data
         return out
 
 
